@@ -1,13 +1,11 @@
 import importlib.resources
 import math
 import random
-import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Dict, Set
 
 import pygame
-from bidict import bidict
 
 from game import assets
 
@@ -92,7 +90,6 @@ class Item:
 
 
 # === Component Stores ===
-player: int
 positions: Dict[int, Position] = {}
 sprites: Dict[int, Sprite] = {}
 animals: Dict[int, Animal] = {}
@@ -133,7 +130,6 @@ def remove_entity(eid: int):
 pygame.init()
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("Animal Pickup ECS")
-clock = pygame.time.Clock()
 
 # === Load images ===
 images = {
@@ -196,8 +192,6 @@ def spawn_walls(count=15):
 
 
 def restart_game():
-    global player
-
     entities.clear()
     positions.clear()
     sprites.clear()
@@ -208,7 +202,7 @@ def restart_game():
 
     spawn_walls(25)
     spawn_items(30)
-    player = spawn_animal()
+    return spawn_animal()
 
 
 # === Systems ===
@@ -334,24 +328,3 @@ def draw_grid():
 
     for y in range(0, SCREEN_HEIGHT, TILE_SIZE):
         pygame.draw.line(screen, (80, 80, 80), (0, y), (SCREEN_WIDTH, y))
-
-
-# === Main loop ===
-restart_game()
-
-while True:
-    events = pygame.event.get()
-
-    for event in events:
-        if event.type == pygame.QUIT:
-            pygame.quit()
-            sys.exit()
-
-        input_system(player, event)
-
-    dt = clock.tick(60) / 1000.0
-    movement_system()
-    animation_system(dt)
-    pickup_system()
-    score_system()
-    render_system()
