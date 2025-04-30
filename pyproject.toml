@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+dynamic = ["version"]
+name = "Dudziogra"
+readme = "README.md"
+authors = [
+  { name = "Michał 'Khorne' Lowas-Rzechonek", email = "michal@rzechonek.net" },
+]
+dependencies = [
+]
+
+[tool.setuptools_scm]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+]
+
+[tool.black]
+line-length = 120
+target-version = ['py312']
+include = '\.pyi?$'
+exclude = '''
+
+(
+  /(
+    | \.git
+    | \.mypy_cache
+    | _build
+    | build
+    | dist
+  )/
+)
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 120
+multi_line_output = 3
+include_trailing_comma = true
+use_parentheses = true
+
+[tool.flake8]
+max-line-length = 120
+max-complexity = 25
