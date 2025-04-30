@@ -141,19 +141,6 @@ class PickupSystem(System):
             self.game.restart()
 
 
-class ScoreSystem(System):
-    def update(self, delta, events):
-        for eid, animal in self.world.animals.items():
-            remaining_items = next(
-                (item.kind for item in self.world.items.values() if item.kind in PickupSystem.ALLOWED_PICKUPS[animal.species]),
-                None,
-            )
-            if not remaining_items:
-                return True
-
-        return False
-
-
 class RenderSystem(System):
     TILE_SIZE = 128
 
@@ -207,7 +194,6 @@ class Game:
             AnimationSystem(self),
             MovementSystem(self),
             PickupSystem(self),
-            ScoreSystem(self),
             RenderSystem(self),
         ]
         self.images = load_images()
