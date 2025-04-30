@@ -24,6 +24,8 @@ dudziogra = "game.cli:main"
 [project.optional-dependencies]
 dev = [
     "black",
+    "isort",
+    "flake8-pyproject",
 ]
 
 [tool.black]

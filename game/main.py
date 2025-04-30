@@ -1,330 +1,267 @@
-import importlib.resources
 import math
 import random
-from dataclasses import dataclass
-from enum import Enum, auto
-from typing import Dict, Set
+import sys
+from dataclasses import dataclass, field
 
 import pygame
 
-from game import assets
+from game.assets import load_images
+from game.components import Animal, Animation, Item, Position, Sprite, Wall
+from game.types import AnimalType, ItemType
+from game.world import World
 
 
-def load_image(name: str) -> pygame.Surface:
-    path = importlib.resources.files(assets).joinpath(name)
-    with path.open("rb") as f:
-        return pygame.image.load(f).convert_alpha()
+class System:
+    def __init__(self, game):
+        self.game = game
+
+    @property
+    def world(self):
+        return self.game.world
+
+    def update(self, delta, events):
+        raise NotImplementedError()
+
+    def restart(self):
+        pass
 
 
-# === Enums ===
-class AnimalType(Enum):
-    RABBIT = auto()
-    SEAL = auto()
-    FISH = auto()
-    DOG = auto()
-    SNAIL = auto()
-    HEDGEHOG = auto()
+class MovementSystem(System):
+    def restart(self):
+        self.wall_positions = {}
+        for eid, wall in self.world.walls.items():
+            position = self.world.positions[eid]
+            self.wall_positions[(position.x, position.y)] = eid
+
+    def update(self, delta, events):
+        new_positions = {}
+
+        for eid, position in self.world.animals.items():
+            if eid in self.world.animations:
+                continue
+
+            position = self.world.positions[eid]
+
+            if position.dx == 0 and position.dy == 0:
+                continue
+
+            new_position = Position(position.x + position.dx, position.y + position.dy)
+
+            blocked = (new_position.x, new_position.y) in self.wall_positions
+            out_of_bounds = not (0 <= new_position.x < self.world.size.x and 0 <= new_position.y < self.world.size.y)
+
+            if blocked or out_of_bounds:
+                position.dx = 0
+                position.dy = 0
+                continue
+
+            new_positions[eid] = new_position
+            self.world.animations[eid] = Animation(position.dx, position.dy)
+
+        self.world.positions.update(new_positions)
 
 
-class ItemType(Enum):
-    CARROT = auto()
-    BONE = auto()
-    STAR = auto()
-    SHELL = auto()
-    WORM = auto()
-    STRAWBERRY = auto()
+class AnimationSystem(System):
+    def update(self, delta, events):
+        done = set()
 
-
-# === Constants ===
-TILE_SIZE = 128
-GRID_WIDTH = 18
-GRID_HEIGHT = 12
-SCREEN_WIDTH = TILE_SIZE * GRID_WIDTH
-SCREEN_HEIGHT = TILE_SIZE * GRID_HEIGHT
-
-# === ECS Structures ===
-next_entity_id = 0
-entities: Set[int] = set()
-pressed_keys = set()
-
-
-@dataclass
-class Wall:
-    pass
-
-
-@dataclass
-class Position:
-    x: int
-    y: int
-    dx: int = 0
-    dy: int = 0
-
-    def __hash__(self):
-        return hash((self.x, self.y))
-
-
-@dataclass
-class Animation:
-    dx: int = 0
-    dy: int = 0
-    step: float = 0
-
-
-@dataclass
-class Sprite:
-    surface: pygame.Surface
-    x: int = None
-    y: int = None
-
-
-@dataclass
-class Animal:
-    species: AnimalType
-    score: int = 0
-
-
-@dataclass
-class Item:
-    kind: ItemType
-
-
-# === Component Stores ===
-positions: Dict[int, Position] = {}
-sprites: Dict[int, Sprite] = {}
-animals: Dict[int, Animal] = {}
-items: Dict[int, Item] = {}
-walls: Dict[int, Wall] = {}
-animations: Dict[int, Animation] = {}
-
-# === Allowed pickups per species ===
-ALLOWED_PICKUPS = {
-    AnimalType.SEAL: {ItemType.SHELL},
-    AnimalType.RABBIT: {ItemType.CARROT},
-    AnimalType.FISH: {ItemType.STAR},
-    AnimalType.DOG: {ItemType.BONE},
-    AnimalType.HEDGEHOG: {ItemType.WORM},
-    AnimalType.SNAIL: {ItemType.STRAWBERRY},
-}
-
-
-# === ECS functions ===
-def create_entity() -> int:
-    global next_entity_id
-    eid = next_entity_id
-    next_entity_id += 1
-    entities.add(eid)
-    return eid
-
-
-def remove_entity(eid: int):
-    entities.discard(eid)
-    positions.pop(eid, None)
-    sprites.pop(eid, None)
-    animals.pop(eid, None)
-    items.pop(eid, None)
-    walls.pop(eid, None)
-
-
-# === Pygame setup ===
-pygame.init()
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Animal Pickup ECS")
-
-# === Load images ===
-images = {
-    AnimalType.RABBIT: load_image("rabbit.png"),
-    AnimalType.SEAL: load_image("seal.png"),
-    AnimalType.FISH: load_image("fish.png"),
-    AnimalType.DOG: load_image("dog.png"),
-    AnimalType.HEDGEHOG: load_image("hedgehog.png"),
-    AnimalType.SNAIL: load_image("snail.png"),
-    ItemType.CARROT: load_image("carrot.png"),
-    ItemType.BONE: load_image("bone.png"),
-    ItemType.STAR: load_image("star.png"),
-    ItemType.SHELL: load_image("shell.png"),
-    ItemType.WORM: load_image("worm.png"),
-    ItemType.STRAWBERRY: load_image("strawberry.png"),
-}
-
-
-def new_position():
-    used_positions = set(positions.values())
-
-    while True:
-        position = Position(random.randint(0, GRID_WIDTH - 1), y=random.randint(0, GRID_HEIGHT - 1))
-
-        if position not in used_positions:
-            break
-
-    return position
-
-
-# === Spawn world ===
-def spawn_animal():
-    kind = random.choice(list(AnimalType))
-
-    position = new_position()
-    eid = create_entity()
-    animals[eid] = Animal(kind)
-    sprites[eid] = Sprite(images[kind], position.x * TILE_SIZE, position.y * TILE_SIZE)
-    positions[eid] = position
-
-    return eid
-
-
-def spawn_items(n: int):
-    for _ in range(n):
-        position = new_position()
-        kind = random.choice(list(ItemType))
-        eid = create_entity()
-        items[eid] = Item(kind)
-        sprites[eid] = Sprite(images[kind], position.x * TILE_SIZE, position.y * TILE_SIZE)
-        positions[eid] = position
-
-
-def spawn_walls(count=15):
-    for _ in range(count):
-        position = new_position()
-        eid = create_entity()
-        walls[eid] = Wall()
-        positions[eid] = position
-
-
-def restart_game():
-    entities.clear()
-    positions.clear()
-    sprites.clear()
-    animals.clear()
-    items.clear()
-    walls.clear()
-    animations.clear()
-
-    spawn_walls(25)
-    spawn_items(30)
-    return spawn_animal()
-
-
-# === Systems ===
-def movement_system():
-    new_positions = {}
-
-    wall_positions = {}
-    for eid, wall in walls.items():
-        position = positions[eid]
-        wall_positions[(position.x, position.y)] = eid
-
-    for eid, position in animals.items():
-        position = positions[eid]
-
-        if position.dx == 0 and position.dy == 0:
-            continue
-
-        new_position = Position(position.x + position.dx, position.y + position.dy)
-
-        blocked = (new_position.x, new_position.y) in wall_positions
-        out_of_bounds = not (0 <= new_position.x < GRID_WIDTH and 0 <= new_position.y < GRID_HEIGHT)
-
-        if blocked or out_of_bounds:
-            position.dx = 0
-            position.dy = 0
-            continue
-
-        new_positions[eid] = new_position
-        animations[eid] = Animation(position.dx, position.dy)
-
-    positions.update(new_positions)
-
-
-def animation_system(delta):
-    for eid, sprite in sprites.items():
-        position = positions[eid]
-
-        sprite.x = position.x * TILE_SIZE
-        sprite.y = position.y * TILE_SIZE
-
-        if animation := animations.get(eid):
+        for eid, animation in self.world.animations.items():
             animation.step += delta / 0.08
+
             if animation.step >= 1:
-                animations.pop(eid)
-            else:
-                sprite.x -= animation.dx * math.sin((1.0 - animation.step) * math.pi / 2) * TILE_SIZE
-                sprite.y -= animation.dy * math.sin((1.0 - animation.step) * math.pi / 2) * TILE_SIZE
+                done.add(eid)
+
+        for eid in done:
+            self.world.animations.pop(eid)
 
 
-def input_system(player, event):
-    global pressed_keys
+class InputSystem(System):
+    def restart(self):
+        self.pressed_keys = set()
 
-    pos = positions[player]
+    def update(self, delta, events):
+        position = self.world.positions[self.game.player]
 
-    if event.type == pygame.KEYDOWN:
-        if event.key in pressed_keys:
-            # Ignore if already pressed
-            return
+        for event in events:
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
 
-        pressed_keys.add(event.key)
-        if event.key == pygame.K_LEFT:
-            pos.dx = -1
-        elif event.key == pygame.K_RIGHT:
-            pos.dx = 1
-        elif event.key == pygame.K_UP:
-            pos.dy = -1
-        elif event.key == pygame.K_DOWN:
-            pos.dy = 1
-        else:
-            return
+            if event.type == pygame.KEYDOWN:
+                if event.key in self.pressed_keys:
+                    return
 
-    elif event.type == pygame.KEYUP:
-        pressed_keys.clear()
+                self.pressed_keys.add(event.key)
+                if event.key == pygame.K_LEFT:
+                    position.dy = 0
+                    position.dx = -1
+                elif event.key == pygame.K_RIGHT:
+                    position.dy = 0
+                    position.dx = 1
+                elif event.key == pygame.K_UP:
+                    position.dy = -1
+                    position.dx = 0
+                elif event.key == pygame.K_DOWN:
+                    position.dy = 1
+                    position.dx = 0
+                else:
+                    return
 
-
-def pickup_system():
-    item_positions = {}
-
-    for eid, item in items.items():
-        position = positions[eid]
-        item_positions[(position.x, position.y)] = eid
-
-    for eid, animal in animals.items():
-        position = positions[eid]
-        pickups = ALLOWED_PICKUPS.get(animal.species, set())
-
-        if item_eid := item_positions.get((position.x, position.y)):
-            item = items[item_eid]
-
-            if item.kind in pickups:
-                animal.score += 1
-                remove_entity(item_eid)
+            elif event.type == pygame.KEYUP:
+                self.pressed_keys.clear()
 
 
-def score_system():
-    for eid, animal in animals.items():
-        remaining_items = next(
-            (item.kind for item in items.values() if item.kind in ALLOWED_PICKUPS[animal.species]), None
-        )
-        if not remaining_items:
-            restart_game()
-            return
+class PickupSystem(System):
+    ALLOWED_PICKUPS = {
+        AnimalType.SEAL: {ItemType.SHELL},
+        AnimalType.RABBIT: {ItemType.CARROT},
+        AnimalType.FISH: {ItemType.STAR},
+        AnimalType.DOG: {ItemType.BONE},
+        AnimalType.HEDGEHOG: {ItemType.WORM},
+        AnimalType.SNAIL: {ItemType.STRAWBERRY},
+    }
+
+    def restart(self):
+        self.pickups = {}
+
+        animal = self.world.animals[self.game.player]
+
+        for eid, item in self.world.items.items():
+            if item.kind in self.ALLOWED_PICKUPS[animal.species]:
+                position = self.world.positions[eid]
+                self.pickups[(position.x, position.y)] = eid
+
+    def update(self, delta, events):
+        position = self.world.positions[self.game.player]
+
+        if eid := self.pickups.pop((position.x, position.y), None):
+            self.world.destroy_entity(eid)
+
+        if not self.pickups:
+            self.game.restart()
 
 
-def render_system():
-    screen.fill((200, 200, 200))
-    draw_grid()
-    for eid, sprite in sprites.items():
-        screen.blit(sprite.surface, (sprite.x, sprite.y))
+class ScoreSystem(System):
+    def update(self, delta, events):
+        for eid, animal in self.world.animals.items():
+            remaining_items = next(
+                (
+                    item.kind
+                    for item in self.world.items.values()
+                    if item.kind in PickupSystem.ALLOWED_PICKUPS[animal.species]
+                ),
+                None,
+            )
+            if not remaining_items:
+                return True
 
-    pygame.display.flip()
+        return False
 
 
-def draw_grid():
-    for eid, wall in walls.items():
-        position = positions[eid]
-        pygame.draw.rect(
-            screen, (100, 100, 100), pygame.Rect(position.x * TILE_SIZE, position.y * TILE_SIZE, TILE_SIZE, TILE_SIZE)
-        )
+class RenderSystem(System):
+    TILE_SIZE = 128
 
-    for x in range(0, SCREEN_WIDTH, TILE_SIZE):
-        pygame.draw.line(screen, (80, 80, 80), (x, 0), (x, SCREEN_HEIGHT))
+    def __init__(self, game):
+        super().__init__(game)
+        pygame.display.set_caption("Dudziogra")
+        self.screen = pygame.display.set_mode((self.world.size.x * self.TILE_SIZE, self.world.size.y * self.TILE_SIZE))
 
-    for y in range(0, SCREEN_HEIGHT, TILE_SIZE):
-        pygame.draw.line(screen, (80, 80, 80), (0, y), (SCREEN_WIDTH, y))
+    def update(self, delta, events):
+        self.screen.fill((200, 200, 200))
+
+        for eid, wall in self.world.walls.items():
+            position = self.world.positions[eid]
+            pygame.draw.rect(
+                self.screen,
+                (100, 100, 100),
+                pygame.Rect(position.x * self.TILE_SIZE, position.y * self.TILE_SIZE, self.TILE_SIZE, self.TILE_SIZE),
+            )
+
+        for x in range(0, self.world.size.x * self.TILE_SIZE, self.TILE_SIZE):
+            pygame.draw.line(self.screen, (80, 80, 80), (x, 0), (x, self.world.size.y * self.TILE_SIZE))
+
+        for y in range(0, self.world.size.y * self.TILE_SIZE, self.TILE_SIZE):
+            pygame.draw.line(self.screen, (80, 80, 80), (0, y), (self.world.size.x * self.TILE_SIZE, y))
+
+        for eid, sprite in self.world.sprites.items():
+            position = self.world.positions[eid]
+
+            x = position.x * self.TILE_SIZE
+            y = position.y * self.TILE_SIZE
+
+            if animation := self.world.animations.get(eid):
+                x -= animation.dx * math.sin((1.0 - animation.step) * math.pi / 2) * self.TILE_SIZE
+                y -= animation.dy * math.sin((1.0 - animation.step) * math.pi / 2) * self.TILE_SIZE
+
+            self.screen.blit(sprite.surface, (x, y))
+
+        pygame.display.flip()
+
+
+@dataclass
+class Game:
+    world: World = field(default_factory=World)
+    systems: list[System] = field(default_factory=list)
+    images: dict[AnimalType | ItemType, pygame.Surface] = field(default_factory=dict)
+    player: int = None
+
+    def __post_init__(self):
+        self.systems = [
+            InputSystem(self),
+            AnimationSystem(self),
+            MovementSystem(self),
+            PickupSystem(self),
+            ScoreSystem(self),
+            RenderSystem(self),
+        ]
+        self.images = load_images()
+        self.restart()
+
+    def new_position(self):
+        used_positions = set(self.world.positions.values())
+
+        while True:
+            position = Position(x=random.randint(0, self.world.size.x - 1), y=random.randint(0, self.world.size.y - 1))
+
+            if position not in used_positions:
+                break
+
+        return position
+
+    def spawn_animal(self):
+        eid = self.world.create_entity()
+
+        kind = random.choice(list(AnimalType))
+        self.world.animals[eid] = Animal(kind)
+        self.world.sprites[eid] = Sprite(self.images[kind])
+        self.world.positions[eid] = self.new_position()
+
+        return eid
+
+    def spawn_items(self, n: int):
+        for _ in range(n):
+            eid = self.world.create_entity()
+
+            kind = random.choice(list(ItemType))
+            self.world.items[eid] = Item(kind)
+            self.world.sprites[eid] = Sprite(self.images[kind])
+            self.world.positions[eid] = self.new_position()
+
+    def spawn_walls(self, count=15):
+        for _ in range(count):
+            eid = self.world.create_entity()
+            self.world.walls[eid] = Wall()
+            self.world.positions[eid] = self.new_position()
+
+    def restart(self):
+        self.world.clear()
+        self.spawn_walls(25)
+        self.spawn_items(30)
+        self.player = self.spawn_animal()
+
+        for system in self.systems:
+            system.restart()
+
+    def update(self, delta, events):
+        for system in self.systems:
+            system.update(delta, events)
