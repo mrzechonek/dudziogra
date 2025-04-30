@@ -1,11 +1,13 @@
 import importlib.resources
+import math
 import random
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Dict, Set
 
 import pygame
+from bidict import bidict
 
 from game import assets
 
@@ -57,21 +59,31 @@ class Wall:
 class Position:
     x: int
     y: int
+    dx: int = 0
+    dy: int = 0
+
+    def __hash__(self):
+        return hash((self.x, self.y))
+
+
+@dataclass
+class Animation:
+    dx: int = 0
+    dy: int = 0
+    step: float = 0
 
 
 @dataclass
 class Sprite:
-    image: pygame.Surface
-
-
-@dataclass
-class PlayerControlled:
-    pass
+    surface: pygame.Surface
+    x: int = None
+    y: int = None
 
 
 @dataclass
 class Animal:
     species: AnimalType
+    score: int = 0
 
 
 @dataclass
@@ -80,12 +92,13 @@ class Item:
 
 
 # === Component Stores ===
+player: int
 positions: Dict[int, Position] = {}
 sprites: Dict[int, Sprite] = {}
 animals: Dict[int, Animal] = {}
 items: Dict[int, Item] = {}
-player_controls: Set[int] = set()
-walls: Set[int] = set()
+walls: Dict[int, Wall] = {}
+animations: Dict[int, Animation] = {}
 
 # === Allowed pickups per species ===
 ALLOWED_PICKUPS = {
@@ -113,7 +126,7 @@ def remove_entity(eid: int):
     sprites.pop(eid, None)
     animals.pop(eid, None)
     items.pop(eid, None)
-    player_controls.discard(eid)
+    walls.pop(eid, None)
 
 
 # === Pygame setup ===
@@ -139,149 +152,193 @@ images = {
 }
 
 
-# === Spawn world ===
-def spawn_random_animal(blocked_positions: Set[tuple] = None):
-    animal_type = random.choice(list(AnimalType))
-    eid = create_entity()
-    animals[eid] = Animal(animal_type)
-    sprites[eid] = Sprite(images[animal_type])
+def new_position():
+    used_positions = set(positions.values())
 
-    # Find an unoccupied position
-    used_positions = set(blocked_positions)
     while True:
-        x = random.randint(0, GRID_WIDTH - 1)
-        y = random.randint(0, GRID_HEIGHT - 1)
-        if (x, y) not in used_positions:
-            used_positions.add((x, y))
+        position = Position(random.randint(0, GRID_WIDTH - 1), y=random.randint(0, GRID_HEIGHT - 1))
+
+        if position not in used_positions:
             break
 
-    positions[eid] = Position(random.randint(0, GRID_WIDTH - 1), random.randint(0, GRID_HEIGHT - 1))
-    player_controls.add(eid)
+    return position
+
+
+# === Spawn world ===
+def spawn_animal():
+    kind = random.choice(list(AnimalType))
+
+    position = new_position()
+    eid = create_entity()
+    animals[eid] = Animal(kind)
+    sprites[eid] = Sprite(images[kind], position.x * TILE_SIZE, position.y * TILE_SIZE)
+    positions[eid] = position
+
     return eid
 
 
-def spawn_random_items(n: int, blocked_positions: Set[tuple] = None):
-    item_types = list(ItemType)
-    used_positions = set(blocked_positions)
-
-    item_coords = set()
+def spawn_items(n: int):
     for _ in range(n):
-        # Find an unoccupied position
-        while True:
-            x = random.randint(0, GRID_WIDTH - 1)
-            y = random.randint(0, GRID_HEIGHT - 1)
-            if (x, y) not in used_positions:
-                used_positions.add((x, y))
-                item_coords.add((x, y))
-                break
-
-        kind = random.choice(item_types)
+        position = new_position()
+        kind = random.choice(list(ItemType))
         eid = create_entity()
         items[eid] = Item(kind)
-        sprites[eid] = Sprite(images[kind])
-        positions[eid] = Position(x, y)
-
-    return item_coords
+        sprites[eid] = Sprite(images[kind], position.x * TILE_SIZE, position.y * TILE_SIZE)
+        positions[eid] = position
 
 
 def spawn_walls(count=15):
-    wall_coords = set()
-    while len(wall_coords) < count:
-        x = random.randint(0, GRID_WIDTH - 1)
-        y = random.randint(0, GRID_HEIGHT - 1)
-        wall_coords.add((x, y))
-
-    for x, y in wall_coords:
+    for _ in range(count):
+        position = new_position()
         eid = create_entity()
-        positions[eid] = Position(x, y)
-        walls.add(eid)
-
-    return wall_coords
+        walls[eid] = Wall()
+        positions[eid] = position
 
 
-wall_positision = spawn_walls(25)
-item_positions = spawn_random_items(30, wall_positision)
-player = spawn_random_animal(wall_positision | item_positions)
+def restart_game():
+    global player
+
+    entities.clear()
+    positions.clear()
+    sprites.clear()
+    animals.clear()
+    items.clear()
+    walls.clear()
+    animations.clear()
+
+    spawn_walls(25)
+    spawn_items(30)
+    player = spawn_animal()
 
 
 # === Systems ===
-def input_system(event):
+def movement_system():
+    new_positions = {}
+
+    wall_positions = {}
+    for eid, wall in walls.items():
+        position = positions[eid]
+        wall_positions[(position.x, position.y)] = eid
+
+    for eid, position in animals.items():
+        position = positions[eid]
+
+        if position.dx == 0 and position.dy == 0:
+            continue
+
+        new_position = Position(position.x + position.dx, position.y + position.dy)
+
+        blocked = (new_position.x, new_position.y) in wall_positions
+        out_of_bounds = not (0 <= new_position.x < GRID_WIDTH and 0 <= new_position.y < GRID_HEIGHT)
+
+        if blocked or out_of_bounds:
+            position.dx = 0
+            position.dy = 0
+            continue
+
+        new_positions[eid] = new_position
+        animations[eid] = Animation(position.dx, position.dy)
+
+    positions.update(new_positions)
+
+
+def animation_system(delta):
+    for eid, sprite in sprites.items():
+        position = positions[eid]
+
+        sprite.x = position.x * TILE_SIZE
+        sprite.y = position.y * TILE_SIZE
+
+        if animation := animations.get(eid):
+            animation.step += delta / 0.08
+            if animation.step >= 1:
+                animations.pop(eid)
+            else:
+                sprite.x -= animation.dx * math.sin((1.0 - animation.step) * math.pi / 2) * TILE_SIZE
+                sprite.y -= animation.dy * math.sin((1.0 - animation.step) * math.pi / 2) * TILE_SIZE
+
+
+def input_system(player, event):
     global pressed_keys
 
-    dx, dy = 0, 0
-    move = False
+    pos = positions[player]
 
     if event.type == pygame.KEYDOWN:
-        if event.key not in pressed_keys:
-            pressed_keys.add(event.key)
-            move = True
-            if event.key == pygame.K_LEFT:
-                dx = -1
-            elif event.key == pygame.K_RIGHT:
-                dx = 1
-            elif event.key == pygame.K_UP:
-                dy = -1
-            elif event.key == pygame.K_DOWN:
-                dy = 1
+        if event.key in pressed_keys:
+            # Ignore if already pressed
+            return
+
+        pressed_keys.add(event.key)
+        if event.key == pygame.K_LEFT:
+            pos.dx = -1
+        elif event.key == pygame.K_RIGHT:
+            pos.dx = 1
+        elif event.key == pygame.K_UP:
+            pos.dy = -1
+        elif event.key == pygame.K_DOWN:
+            pos.dy = 1
+        else:
+            return
 
     elif event.type == pygame.KEYUP:
-        pressed_keys.discard(event.key)
-
-    if move:
-        for eid in player_controls:
-            if eid in positions:
-                pos = positions[eid]
-                new_x = pos.x + dx
-                new_y = pos.y + dy
-
-                # Before moving
-                blocked = any(pos2.x == new_x and pos2.y == new_y for eid2, pos2 in positions.items() if eid2 in walls)
-
-                if not blocked and 0 <= new_x < GRID_WIDTH and 0 <= new_y < GRID_HEIGHT:
-                    pos.x, pos.y = new_x, new_y
+        pressed_keys.clear()
 
 
 def pickup_system():
-    for player_id in player_controls:
-        if player_id not in animals or player_id not in positions:
-            continue
-        animal_type = animals[player_id].species
-        pos = positions[player_id]
-        allowed = ALLOWED_PICKUPS.get(animal_type, set())
+    item_positions = {}
 
-        for item_id in list(items):
-            item = items[item_id]
-            if item.kind not in allowed:
-                continue
-            if item_id in positions and positions[item_id].x == pos.x and positions[item_id].y == pos.y:
-                remove_entity(item_id)
+    for eid, item in items.items():
+        position = positions[eid]
+        item_positions[(position.x, position.y)] = eid
+
+    for eid, animal in animals.items():
+        position = positions[eid]
+        pickups = ALLOWED_PICKUPS.get(animal.species, set())
+
+        if item_eid := item_positions.get((position.x, position.y)):
+            item = items[item_eid]
+
+            if item.kind in pickups:
+                animal.score += 1
+                remove_entity(item_eid)
+
+
+def score_system():
+    for eid, animal in animals.items():
+        remaining_items = next(
+            (item.kind for item in items.values() if item.kind in ALLOWED_PICKUPS[animal.species]), None
+        )
+        if not remaining_items:
+            restart_game()
+            return
 
 
 def render_system():
     screen.fill((200, 200, 200))
     draw_grid()
-    for eid in entities:
-        if eid in positions and eid in sprites:
-            pos = positions[eid]
-            img = sprites[eid].image
-            screen.blit(img, (pos.x * TILE_SIZE, pos.y * TILE_SIZE))
+    for eid, sprite in sprites.items():
+        screen.blit(sprite.surface, (sprite.x, sprite.y))
+
     pygame.display.flip()
 
 
 def draw_grid():
-    for eid in walls:
-        pos = positions[eid]
+    for eid, wall in walls.items():
+        position = positions[eid]
         pygame.draw.rect(
-            screen, (100, 100, 100), pygame.Rect(pos.x * TILE_SIZE, pos.y * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+            screen, (100, 100, 100), pygame.Rect(position.x * TILE_SIZE, position.y * TILE_SIZE, TILE_SIZE, TILE_SIZE)
         )
 
     for x in range(0, SCREEN_WIDTH, TILE_SIZE):
         pygame.draw.line(screen, (80, 80, 80), (x, 0), (x, SCREEN_HEIGHT))
+
     for y in range(0, SCREEN_HEIGHT, TILE_SIZE):
         pygame.draw.line(screen, (80, 80, 80), (0, y), (SCREEN_WIDTH, y))
 
 
 # === Main loop ===
+restart_game()
+
 while True:
     events = pygame.event.get()
 
@@ -290,8 +347,11 @@ while True:
             pygame.quit()
             sys.exit()
 
-        input_system(event)
+        input_system(player, event)
 
+    dt = clock.tick(60) / 1000.0
+    movement_system()
+    animation_system(dt)
     pickup_system()
+    score_system()
     render_system()
-    clock.tick(60)
