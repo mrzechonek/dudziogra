@@ -1,9 +1,10 @@
 import pygame
+import asyncio
 
 from game.main import Game
 
 
-def main():
+async def loop():
     pygame.init()
     clock = pygame.time.Clock()
 
@@ -11,5 +12,10 @@ def main():
 
     while True:
         events = pygame.event.get()
-        delta = clock.tick(60) / 1000.0
+        delta = clock.tick() / 1000.0
         game.update(delta, events)
+        await asyncio.sleep(0)
+
+
+def main():
+    asyncio.run(loop())

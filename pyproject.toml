@@ -17,7 +17,7 @@ dependencies = [
 "game.assets" = ["*.png"]
 
 [project.entry-points.console_scripts]
-dudziogra = "game.cli:main"
+dudziogra = "game.main:main"
 
 [tool.setuptools_scm]
 

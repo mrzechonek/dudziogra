@@ -1,6 +1,15 @@
-from game.types import AnimalType, ItemType
+import os
 
-from .loader import load_image
+import pygame
+
+from ..types import AnimalType, ItemType
+
+DIR = os.path.dirname(__file__)
+
+
+def load_image(name: str) -> pygame.Surface:
+    with open(f"{DIR}/{name}", "rb") as f:
+        return pygame.image.load(f).convert_alpha()
 
 
 def load_images():

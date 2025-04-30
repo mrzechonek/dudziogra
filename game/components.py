@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import pygame
 
-from game.types import AnimalType, ItemType
+from .types import AnimalType, ItemType
 
 
 @dataclass

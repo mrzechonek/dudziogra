@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from itertools import count
 from typing import Generator
 
-from game.components import Animal, Animation, Item, Position, Sprite, Wall
+from .components import Animal, Animation, Item, Position, Sprite, Wall
 
 
 @dataclass
