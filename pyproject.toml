@@ -10,7 +10,14 @@ authors = [
   { name = "Michał 'Khorne' Lowas-Rzechonek", email = "michal@rzechonek.net" },
 ]
 dependencies = [
+    "pygame >= 2.6.1",
 ]
+
+[tool.setuptools.package-data]
+"game.assets" = ["*.png"]
+
+[project.entry-points.console_scripts]
+dudziogra = "game.cli:main"
 
 [tool.setuptools_scm]
 
