@@ -1,8 +1,9 @@
+from collections import defaultdict
 from dataclasses import dataclass, field
 from itertools import count
 from typing import Generator
 
-from .components import Animal, Animation, Item, Position, Sprite, Wall
+from .components import Animal, Animation, Item, Position, Sprite, Trap, Wall
 
 
 @dataclass
@@ -20,9 +21,11 @@ class World:
     items: dict[int, Item] = field(default_factory=dict)
     walls: dict[int, Wall] = field(default_factory=dict)
     animations: dict[int, Animation] = field(default_factory=dict)
+    traps: dict[int, Trap] = field(default_factory=dict)
+    light: dict[tuple[int, int], float] = field(default_factory=lambda: defaultdict(lambda: 1.0))
 
     entities_seq: Generator[int, None, None] = field(default_factory=count, init=False)
-    size: Vector = field(default_factory=lambda: Vector(18, 12))
+    size: Vector = field(default_factory=lambda: Vector(32, 20))
 
     def clear(self):
         self.positions.clear()
@@ -31,6 +34,8 @@ class World:
         self.items.clear()
         self.walls.clear()
         self.animations.clear()
+        self.traps.clear()
+        self.light.clear()
 
     def create_entity(self) -> int:
         eid = next(self.entities_seq)
@@ -45,3 +50,4 @@ class World:
         self.items.pop(eid, None)
         self.walls.pop(eid, None)
         self.animations.pop(eid, None)
+        self.traps.pop(eid, None)

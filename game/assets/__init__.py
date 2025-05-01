@@ -2,7 +2,7 @@ import os
 
 import pygame
 
-from ..types import AnimalType, ItemType
+from ..types import AnimalType, ItemType, TrapType, WallType
 
 DIR = os.path.dirname(__file__)
 
@@ -26,4 +26,8 @@ def load_images():
         ItemType.SHELL: load_image("shell.png"),
         ItemType.WORM: load_image("worm.png"),
         ItemType.STRAWBERRY: load_image("strawberry.png"),
+        WallType.FENCE: load_image("fence.png"),
+        TrapType.SPIDER: load_image("spider.png"),
+        # TrapType.PIT: load_image("pit.png"),
+        TrapType.BALL: load_image("ball.png"),
     }

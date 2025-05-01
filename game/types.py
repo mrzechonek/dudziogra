@@ -17,3 +17,13 @@ class ItemType(Enum):
     SHELL = auto()
     WORM = auto()
     STRAWBERRY = auto()
+
+
+class TrapType(Enum):
+    SPIDER = auto()
+    # PIT = auto()
+    BALL = auto()
+
+
+class WallType(Enum):
+    FENCE = auto()

@@ -2,12 +2,12 @@ from dataclasses import dataclass
 
 import pygame
 
-from .types import AnimalType, ItemType
+from .types import AnimalType, ItemType, TrapType, WallType
 
 
 @dataclass
 class Wall:
-    pass
+    kind: WallType = WallType.FENCE
 
 
 @dataclass
@@ -30,17 +30,23 @@ class Animation:
 
 @dataclass
 class Sprite:
-    surface: pygame.Surface
+    kind: AnimalType
     x: int = None
     y: int = None
 
 
 @dataclass
 class Animal:
-    species: AnimalType
+    kind: AnimalType
     score: int = 0
 
 
 @dataclass
 class Item:
     kind: ItemType
+
+
+@dataclass
+class Trap:
+    kind: TrapType
+    step: int = 0
