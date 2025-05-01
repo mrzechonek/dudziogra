@@ -167,11 +167,17 @@ class RenderSystem(System):
             position = self.world.positions[eid]
             surface = self.images[wall.kind]
 
+            if self.world.light is not None and (position.x, position.y) not in self.world.light:
+                continue
+
             self.screen.blit(surface, (position.x * self.TILE_SIZE, position.y * self.TILE_SIZE))
 
         for eid, trap in self.world.traps.items():
             position = self.world.positions[eid]
             surface = self.images[trap.kind]
+
+            if self.world.light is not None and (position.x, position.y) not in self.world.light:
+                continue
 
             self.screen.blit(surface, (position.x * self.TILE_SIZE, position.y * self.TILE_SIZE))
 
@@ -231,7 +237,6 @@ class LightSystem(System):
                     x += sx
                     err += dy
                 y += sy
-        yield (x1, y1)
 
     def los_blocked(self, x0, y0, x1, y1):
         for x, y in self.bresenham(x0, y0, x1, y1):
