@@ -7,7 +7,7 @@ import pygame
 
 from game.assets import load_images
 from game.components import Animal, Animation, Item, Position, Sprite, Trap, Wall
-from game.types import AnimalType, ItemType, TrapType, WallType
+from game.types import AnimalType, ItemType, TrapType
 from game.world import World
 
 
@@ -28,10 +28,10 @@ class System:
 
 class MovementSystem(System):
     def restart(self):
-        self.wall_positions = {}
+        self.walls = {}
         for eid, wall in self.world.walls.items():
             position = self.world.positions[eid]
-            self.wall_positions[(position.x, position.y)] = eid
+            self.walls[(position.x, position.y)] = eid
 
     def update(self, delta, events):
         new_positions = {}
@@ -47,7 +47,7 @@ class MovementSystem(System):
 
             new_position = Position(position.x + position.dx, position.y + position.dy)
 
-            blocked = (new_position.x, new_position.y) in self.wall_positions
+            blocked = (new_position.x, new_position.y) in self.walls
             out_of_bounds = not (0 <= new_position.x < self.world.size.x and 0 <= new_position.y < self.world.size.y)
 
             if blocked or out_of_bounds:
@@ -201,10 +201,10 @@ class RenderSystem(System):
 
 class LightSystem(System):
     def restart(self):
-        self.wall_positions = {}
+        self.walls = {}
         for eid, wall in self.world.walls.items():
             position = self.world.positions[eid]
-            self.wall_positions[(position.x, position.y)] = eid
+            self.walls[(position.x, position.y)] = eid
 
     @property
     def radius(self):
@@ -240,7 +240,7 @@ class LightSystem(System):
 
     def los_blocked(self, x0, y0, x1, y1):
         for x, y in self.bresenham(x0, y0, x1, y1):
-            if (x, y) in self.wall_positions and (x, y) != (x0, y0):
+            if (x, y) in self.walls and (x, y) != (x0, y0):
                 return True
         return False
 
@@ -271,6 +271,11 @@ class TrapSystem(System):
             position = self.world.positions[eid]
             self.traps[(position.x, position.y)] = eid
 
+        self.walls = {}
+        for eid, wall in self.world.walls.items():
+            position = self.world.positions[eid]
+            self.walls[(position.x, position.y)] = eid
+
     def update(self, delta, events):
         position = self.world.positions[self.game.player]
 
@@ -278,8 +283,12 @@ class TrapSystem(System):
             trap = self.world.traps[eid]
 
             if trap.kind == TrapType.BALL:
-                position.dx = random.choice((-1, 1)) * (2 + random.randint(-3, 3))
-                position.dy = random.choice((-1, 1)) * (2 + random.randint(-3, 3))
+                while True:
+                    position.dx = random.choice((-1, 1)) * (2 + random.randint(-3, 3))
+                    position.dy = random.choice((-1, 1)) * (2 + random.randint(-3, 3))
+
+                    if (position.x + position.dx, position.y + position.dy) not in self.walls:
+                        break
 
             if trap.kind == TrapType.SPIDER and (position.dx or position.dy):
                 if trap.step == 0:

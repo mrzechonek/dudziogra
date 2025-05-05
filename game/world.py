@@ -1,9 +1,9 @@
-from collections import defaultdict
 from dataclasses import dataclass, field
 from itertools import count
 from typing import Generator
+from collections import defaultdict
 
-from .components import Animal, Animation, Item, Position, Sprite, Trap, Wall
+from .components import Animal, Animation, Item, Position, Sprite, Wall, Trap
 
 
 @dataclass
