@@ -4,6 +4,39 @@ import sys
 from dataclasses import dataclass, field
 
 import pygame
+from OpenGL.GL import (
+    GL_COLOR_BUFFER_BIT,
+    GL_DEPTH_BUFFER_BIT,
+    GL_MODELVIEW,
+    GL_NEAREST,
+    GL_PROJECTION,
+    GL_QUADS,
+    GL_RGBA,
+    GL_BLEND,
+    GL_SRC_ALPHA,
+    GL_ONE_MINUS_SRC_ALPHA,
+    glBlendFunc,
+    GL_TEXTURE_2D,
+    GL_TEXTURE_MAG_FILTER,
+    GL_TEXTURE_MIN_FILTER,
+    GL_UNSIGNED_BYTE,
+    glBegin,
+    glBindTexture,
+    glClear,
+    glClearColor,
+    glColor4f,
+    glDisable,
+    glEnable,
+    glEnd,
+    glGenTextures,
+    glLoadIdentity,
+    glMatrixMode,
+    glTexCoord2f,
+    glTexImage2D,
+    glTexParameterf,
+    glVertex2f,
+)
+from OpenGL.GLU import gluOrtho2D
 
 from game.assets import load_images
 from game.components import Animal, Animation, Item, Position, Sprite, Trap, Wall
@@ -148,53 +181,105 @@ class RenderSystem(System):
     def __init__(self, game):
         super().__init__(game)
         pygame.display.set_caption("Dudziogra")
-        self.screen = pygame.display.set_mode((self.world.size.x * self.TILE_SIZE, self.world.size.y * self.TILE_SIZE))
+        self.screen = pygame.display.set_mode(
+            (self.world.size.x * self.TILE_SIZE, self.world.size.y * self.TILE_SIZE), pygame.DOUBLEBUF | pygame.OPENGL
+        )
 
     def restart(self):
-        self.images = {k: pygame.transform.scale(v, (self.TILE_SIZE, self.TILE_SIZE)) for k, v in self.game.images.items()}
+        self.textures = {}
+        for k, surface in self.game.images.items():
+            texture_id = glGenTextures(1)
+            glBindTexture(GL_TEXTURE_2D, texture_id)
+            surface = pygame.transform.scale(surface, (self.TILE_SIZE, self.TILE_SIZE))
+            surface = pygame.transform.flip(surface, False, True)
+            image_data = pygame.image.tostring(surface, "RGBA", True)
+            glTexImage2D(
+                GL_TEXTURE_2D,
+                0,
+                GL_RGBA,
+                surface.get_width(),
+                surface.get_height(),
+                0,
+                GL_RGBA,
+                GL_UNSIGNED_BYTE,
+                image_data,
+            )
+            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+            self.textures[k] = texture_id
+
+        glMatrixMode(GL_PROJECTION)
+        glLoadIdentity()
+        gluOrtho2D(0, self.world.size.x * self.TILE_SIZE, self.world.size.y * self.TILE_SIZE, 0)
+        glMatrixMode(GL_MODELVIEW)
+        glEnable(GL_TEXTURE_2D)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+    def draw_tile(self, texture_id, x, y, alpha=1.0):
+        glBindTexture(GL_TEXTURE_2D, texture_id)
+        glColor4f(alpha, alpha, alpha, 1.0)
+        tx, ty = x * self.TILE_SIZE, y * self.TILE_SIZE
+        size = self.TILE_SIZE
+
+        glBegin(GL_QUADS)
+        glTexCoord2f(0, 0)
+        glVertex2f(tx, ty)
+        glTexCoord2f(1, 0)
+        glVertex2f(tx + size, ty)
+        glTexCoord2f(1, 1)
+        glVertex2f(tx + size, ty + size)
+        glTexCoord2f(0, 1)
+        glVertex2f(tx, ty + size)
+        glEnd()
 
     def update(self, delta, events):
-        self.screen.fill((100, 100, 100))
+        glClearColor(0.3, 0.3, 0.3, 1.0)
+        glLoadIdentity()
 
-        for (x, y), l in self.world.light.items():
-            pygame.draw.rect(
-                self.screen,
-                (100 + 155 * l, 100 + 155 * l, 100 + 155 * l),
-                pygame.Rect(x * self.TILE_SIZE, y * self.TILE_SIZE, self.TILE_SIZE, self.TILE_SIZE),
-            )
+        for x in range(self.world.size.x):
+            for y in range(self.world.size.y):
+                light_level = self.world.light.get((x, y), 0.3)
+                brightness = max(0.3, min(1.0, light_level))
+
+                tx, ty = x * self.TILE_SIZE, y * self.TILE_SIZE
+                size = self.TILE_SIZE
+
+                glDisable(GL_TEXTURE_2D)
+                glColor4f(brightness, brightness, brightness, 1.0)
+                glBegin(GL_QUADS)
+                glVertex2f(tx, ty)
+                glVertex2f(tx + size, ty)
+                glVertex2f(tx + size, ty + size)
+                glVertex2f(tx, ty + size)
+                glEnd()
+                glEnable(GL_TEXTURE_2D)
 
         for eid, wall in self.world.walls.items():
-            position = self.world.positions[eid]
-            surface = self.images[wall.kind]
-
-            if self.world.light is not None and (position.x, position.y) not in self.world.light:
+            pos = self.world.positions[eid]
+            if self.world.light and (pos.x, pos.y) not in self.world.light:
                 continue
-
-            self.screen.blit(surface, (position.x * self.TILE_SIZE, position.y * self.TILE_SIZE))
+            self.draw_tile(self.textures[wall.kind], pos.x, pos.y)
 
         for eid, trap in self.world.traps.items():
-            position = self.world.positions[eid]
-            surface = self.images[trap.kind]
-
-            if self.world.light is not None and (position.x, position.y) not in self.world.light:
+            pos = self.world.positions[eid]
+            if self.world.light and (pos.x, pos.y) not in self.world.light:
                 continue
-
-            self.screen.blit(surface, (position.x * self.TILE_SIZE, position.y * self.TILE_SIZE))
+            self.draw_tile(self.textures[trap.kind], pos.x, pos.y)
 
         for eid, sprite in self.world.sprites.items():
-            position = self.world.positions[eid]
-            surface = self.images[sprite.kind]
-            if self.world.light is not None and (position.x, position.y) not in self.world.light:
+            pos = self.world.positions[eid]
+            if self.world.light and (pos.x, pos.y) not in self.world.light:
                 continue
 
-            x = position.x * self.TILE_SIZE
-            y = position.y * self.TILE_SIZE
-
+            x, y = pos.x, pos.y
             if animation := self.world.animations.get(eid):
-                x -= animation.dx * math.sin((1.0 - animation.step) * math.pi / 2) * self.TILE_SIZE
-                y -= animation.dy * math.sin((1.0 - animation.step) * math.pi / 2) * self.TILE_SIZE
+                offset_x = -animation.dx * math.sin((1.0 - animation.step) * math.pi / 2)
+                offset_y = -animation.dy * math.sin((1.0 - animation.step) * math.pi / 2)
+                x += offset_x
+                y += offset_y
 
-            self.screen.blit(surface, (x, y))
+            self.draw_tile(self.textures[sprite.kind], x, y)
 
         pygame.display.flip()
 
